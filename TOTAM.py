@@ -4,11 +4,23 @@ import paho.mqtt.client as mqtt
 import ssl
 import os
 import subprocess
+import uuid
+from dotenv import load_dotenv
+import logging
+import json
+
+load_dotenv()
 
 
 # =========================
 # CONFIG
 # =========================
+
+logging.basicConfig(
+    level=logging.DEBUG, 
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 MQTT_USERNAME = os.getenv("MQTT_USERNAME")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
@@ -25,6 +37,24 @@ COMMAND_TOPIC = f"pc/{HOSTNAME}/command"
 BROADCAST_TOPIC = "pc/all/command"
 STATUS_TOPIC = f"pc/{HOSTNAME}/status"
 
+def get_mac():
+    mac = uuid.getnode()
+    mac_str = ':'.join(f"{(mac >> ele) & 0xff:02x}" for ele in range(40, -1, -8))
+    return mac_str
+
+
+def get_status_payload(status):
+    mac = get_mac()
+    payload = {
+    "status": status,
+    "mac": mac,
+    "hostname": HOSTNAME 
+    }
+    logger.debug("Payload JSON: %s", payload)
+    return json.dumps(payload)
+
+LAST_WILL_MESSAGE = get_status_payload("offline")
+
 # =========================
 # NETWORK CHECK
 # =========================
@@ -39,12 +69,12 @@ def network_ok():
 
 
 def wait_network():
-    print("Waiting network...")
+    logger.info("Waiting network...")
 
     while not network_ok():
-        print("Network not ready, retrying...")
+        logger.error("Network not ready, retrying...")
         time.sleep(3)
-    print("Network OK")
+    logger.info("Network OK")
 
 # =========================
 # COMMAND PROCESS
@@ -52,50 +82,52 @@ def wait_network():
 
 def process_command(command):
     command = command.lower()
-    print(f"Command received: {command}")
+    logger.info(f"Command received: {command}")
 
     if command == SHUTDOWN:
-        print("Shutting down PC")
+        logger.info("Shutting down PC")
         subprocess.run(["sudo", "shutdown", "-h", "now"])
 
     elif command == REBOOT:
-        print("Rebooting PC")
+        logger.info("Rebooting PC")
         subprocess.run(["sudo", "shutdown", "-r", "now"])
 
     elif command == SLEEP:
-        print("Suspending PC")
+        logger.info("Suspending PC")
         subprocess.run(["sudo", "systemctl","suspend"])
 
     else:
-        print("Unknown command:", command)
+        logger.warning("Unknown command: %s", command)
 
 # =========================
 # MQTT CALLBACKS
 # =========================
 
 def on_connect(client, userdata, flags, rc, properties=None): 
-    print("MQTT Connected:", rc) 
+    logger.info("MQTT Connected: %s", rc)
     if rc == 0: 
-        print("Subscribing topics...") 
+        logger.info("Subscribing topics...") 
         client.subscribe(COMMAND_TOPIC) 
         client.subscribe(BROADCAST_TOPIC) 
-        print("Subscribed to:", COMMAND_TOPIC) 
-        print("Subscribed to:", BROADCAST_TOPIC)
-        client.publish(STATUS_TOPIC, "online", retain=True) 
-    else: print("MQTT connection failed")
+        logger.info("Subscribed to: %s", COMMAND_TOPIC)
+        logger.info("Subscribed to: %s", BROADCAST_TOPIC)
+        
+        client.publish(STATUS_TOPIC, get_status_payload("online"), retain=True) 
+    else:
+        logger.error("MQTT connection failed with return code: %s", rc)
 
 def on_disconnect(client, userdata, *args, **kwargs):
-    print("=== on_disconnect ===")
-    print("userdata:", userdata)
-    print("args (positional arguments):", args)
-    print("kwargs (keyword arguments):", kwargs)
-    print("=====================")
-    
+    logger.warning("=== on_disconnect ===")
+    logger.warning("userdata: %s", userdata)
+    logger.warning("args (positional arguments): %s", args)
+    logger.warning("kwargs (keyword arguments): %s", kwargs)
+    logger.warning("=====================")
+
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode("utf-8")
 
-    print(f"Message received | Topic: {topic} | Payload: {payload}")
+    logger.info(f"Message received | Topic: {topic} | Payload: {payload}")
 
     if topic in [COMMAND_TOPIC, BROADCAST_TOPIC]:
         process_command(payload)
@@ -104,8 +136,8 @@ def on_message(client, userdata, msg):
 # START
 # =========================
 
-print("Starting TOTAM MQTT Controller")
-print("Hostname:", HOSTNAME)
+logger.info("Starting TOTAM MQTT Controller")
+logger.info("Hostname: %s", HOSTNAME)
 
 wait_network()
 
@@ -116,7 +148,7 @@ client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 client.tls_set(tls_version=ssl.PROTOCOL_TLS)
 
 # Last will
-client.will_set(STATUS_TOPIC, "offline", retain=True)
+client.will_set(STATUS_TOPIC, LAST_WILL_MESSAGE, retain=True)
 
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
@@ -130,11 +162,12 @@ client.reconnect_delay_set(min_delay=2, max_delay=30)
 
 while True:
     try:
-        print("Connecting to MQTT...")
+        logger.info("Connecting to MQTT...")
+        logger.debug("Connecting to %s:%s", MQTT_BROKER, MQTT_PORT)
         client.connect(MQTT_BROKER, MQTT_PORT)
         break
     except Exception as e:
-        print("MQTT connection failed:", e)
+        logger.error("MQTT connection failed:", e)
         time.sleep(5)
 
 client.loop_start()
@@ -144,17 +177,17 @@ client.loop_start()
 # =========================
 
 while True:
-
+    
     if not network_ok():
-        print("Network lost, waiting...")
+        logger.error("Network lost, waiting...")
         wait_network()
 
     if not client.is_connected():
         try:
-            print("Reconnecting MQTT...")
+            logger.warning("Reconnecting MQTT...")
             client.reconnect()
         except Exception as e:
-            print("Reconnect error:", e)
+            logger.error("Reconnect error:", e)
 
 
     time.sleep(5)
