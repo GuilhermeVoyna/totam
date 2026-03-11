@@ -86,15 +86,15 @@ def process_command(command):
 
     if command == SHUTDOWN:
         logger.info("Shutting down PC")
-        subprocess.run(["sudo", "shutdown", "-h", "now"])
+        subprocess.run(["shutdown", "-h", "now"])
 
     elif command == REBOOT:
         logger.info("Rebooting PC")
-        subprocess.run(["sudo", "shutdown", "-r", "now"])
+        subprocess.run(["shutdown", "-r", "now"])
 
     elif command == SLEEP:
         logger.info("Suspending PC")
-        subprocess.run(["sudo", "systemctl","suspend"])
+        subprocess.run(["systemctl","suspend"])
 
     else:
         logger.warning("Unknown command: %s", command)

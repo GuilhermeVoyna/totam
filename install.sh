@@ -54,7 +54,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=$USER_NAME
+User=root
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/TOTAM.py
 Restart=on-failure
