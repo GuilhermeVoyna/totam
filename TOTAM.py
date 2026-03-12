@@ -79,23 +79,31 @@ def wait_network():
 # =========================
 # COMMAND PROCESS
 # =========================
+def shutdown():
+    logger.info("Shutting down PC")
+    subprocess.run(["shutdown", "-h", "now"])
+
+def reboot():
+    logger.info("Rebooting PC")
+    subprocess.run(["shutdown", "-r", "now"])
+
+def sleep():
+    logger.info("Suspending PC")
+    subprocess.run(["systemctl","suspend"])
+
+actions = {
+    SHUTDOWN: shutdown(),
+    REBOOT: reboot(),
+    SLEEP: sleep()
+}
 
 def process_command(command):
     command = command.lower()
     logger.info(f"Command received: {command}")
+    action = actions.get(command)
 
-    if command == SHUTDOWN:
-        logger.info("Shutting down PC")
-        subprocess.run(["shutdown", "-h", "now"])
-
-    elif command == REBOOT:
-        logger.info("Rebooting PC")
-        subprocess.run(["shutdown", "-r", "now"])
-
-    elif command == SLEEP:
-        logger.info("Suspending PC")
-        subprocess.run(["systemctl","suspend"])
-
+    if action:
+        action()
     else:
         logger.warning("Unknown command: %s", command)
 
