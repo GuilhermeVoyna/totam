@@ -6,7 +6,7 @@ import uuid
 
 import paho.mqtt.client as mqtt
 
-from app.config.settings import (
+from config.settings import (
     GROUP,
     TOTAM_HOSTNAME,
     MQTT_BROKER,
@@ -17,7 +17,7 @@ from app.config.settings import (
     MQTT_RETRY_INITIAL_DELAY,
     MQTT_RETRY_MAX_DELAY,
 )
-from app.mqtt.topics import (
+from mqtt.topics import (
     BROADCAST_TOPIC,
     get_command_topic,
     get_status_topic,
@@ -32,6 +32,8 @@ class MQTTClient:
     def __init__(self, controller):
 
         self.controller = controller
+
+        self._connection_error = None
 
         self.mac = self._get_mac()
 
@@ -91,11 +93,15 @@ class MQTTClient:
         _properties,
     ):
         if reason_code.is_failure:
+            self._connection_error = str(reason_code)
+
             logger.error(
-                "MQTT connection failed: %s",
+                "MQTT connection rejected: %s",
                 reason_code,
             )
             return
+
+        self._connection_error = None
 
         logger.info("MQTT connected")
 
@@ -236,59 +242,95 @@ class MQTTClient:
         retries = 0
 
         while True:
-
             try:
+                self._connection_error = None
 
-                if not self.client.is_connected():
+                # Inicia uma tentativa de conexão.
+                self._connect()
 
-                    self._connect()
+                # Aguarda a resposta do broker.
+                deadline = time.monotonic() + 10
 
-                    # Conexão estabelecida.
-                    retries = 0
+                while (
+                    not self.client.is_connected()
+                    and self._connection_error is None
+                ):
+                    result = self.client.loop(timeout=1.0)
 
-                result = self.client.loop(
-                    timeout=1.0
-                )
+                    if result != mqtt.MQTT_ERR_SUCCESS:
+                        raise ConnectionError(
+                            f"MQTT loop failed: "
+                            f"{mqtt.error_string(result)}"
+                        )
 
-                if result != mqtt.MQTT_ERR_SUCCESS:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            "MQTT connection timed out"
+                        )
 
+                # O broker recusou a autenticação.
+                if self._connection_error is not None:
                     raise ConnectionError(
-                        f"MQTT loop failed: "
-                        f"{mqtt.error_string(result)}"
+                        f"MQTT connection rejected: "
+                        f"{self._connection_error}"
                     )
 
-            except Exception:
+                # Só zera o contador após conectar de verdade.
+                retries = 0
 
-                retries += 1
+                logger.info("MQTT session established")
 
-                if retries > MQTT_MAX_RETRIES:
+                # Mantém o cliente processando mensagens.
+                while self.client.is_connected():
 
-                    logger.exception(
-                        "Maximum MQTT retries reached (%s)",
-                        MQTT_MAX_RETRIES,
-                    )
+                    result = self.client.loop(timeout=1.0)
 
-                    raise
+                    if result != mqtt.MQTT_ERR_SUCCESS:
+                        raise ConnectionError(
+                            f"MQTT loop failed: "
+                            f"{mqtt.error_string(result)}"
+                        )
 
-                delay = min(
-                    MQTT_RETRY_INITIAL_DELAY
-                    * (2 ** (retries - 1)),
-                    MQTT_RETRY_MAX_DELAY,
-                )
+                raise ConnectionError("MQTT connection lost")
 
-                logger.exception(
-                    "MQTT connection failed. "
-                    "Retry %s/%s in %s seconds.",
-                    retries,
-                    MQTT_MAX_RETRIES,
-                    delay,
-                )
+            except KeyboardInterrupt:
+                logger.info("MQTT client stopped manually")
+                self.disconnect()
+                raise
+
+            except Exception as exc:
 
                 try:
                     self.client.disconnect()
-
                 except Exception:
                     pass
+
+                # Limite atingido: encerra a aplicação.
+                if retries >= MQTT_MAX_RETRIES:
+                    logger.critical(
+                        "Maximum MQTT retries reached (%s). "
+                        "Terminating application. Last error: %s",
+                        MQTT_MAX_RETRIES,
+                        exc,
+                        exc_info=True,
+                    )
+                    raise
+
+                delay = min(
+                    MQTT_RETRY_INITIAL_DELAY * (2 ** retries),
+                    MQTT_RETRY_MAX_DELAY,
+                )
+
+                retries += 1
+
+                logger.warning(
+                    "MQTT attempt failed. "
+                    "Retry %s/%s in %s seconds. Error: %s",
+                    retries,
+                    MQTT_MAX_RETRIES,
+                    delay,
+                    exc,
+                )
 
                 time.sleep(delay)
 
