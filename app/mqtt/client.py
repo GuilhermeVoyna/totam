@@ -5,6 +5,10 @@ import time
 import uuid
 
 import paho.mqtt.client as mqtt
+from datetime import datetime, timezone
+
+from app.config.settings import HEARTBEAT_INTERVAL
+from app.mqtt.topics import get_heartbeat_topic
 
 from app.config.settings import (
     GROUP,
@@ -42,6 +46,10 @@ class MQTTClient:
         )
 
         self.status_topic = get_status_topic(
+            TOTAM_HOSTNAME
+        )
+
+        self.heartbeat_topic = get_heartbeat_topic(
             TOTAM_HOSTNAME
         )
 
@@ -234,7 +242,36 @@ class MQTTClient:
             MQTT_BROKER,
             MQTT_PORT,
         )
+    def _publish_heartbeat(self):
+        if HEARTBEAT_INTERVAL <= 0:
+            return
+        payload = {
+            "hostname": TOTAM_HOSTNAME,
+            "mac": self.mac,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
+        result = self.client.publish(
+            topic=self.heartbeat_topic,
+            payload=json.dumps(payload),
+            qos=1,
+            retain=False,
+        )
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error(
+                "Failed to queue heartbeat: topic=%s rc=%s",
+                self.heartbeat_topic,
+                result.rc,
+            )
+            return
+
+        logger.info(
+            "Heartbeat queued: topic=%s mid=%s",
+            self.heartbeat_topic,
+            result.mid,
+        )
+        
     def start(self):
 
         logger.info("Starting MQTT client")
@@ -281,15 +318,20 @@ class MQTTClient:
                 logger.info("MQTT session established")
 
                 # Mantém o cliente processando mensagens.
+                next_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL
+
                 while self.client.is_connected():
 
                     result = self.client.loop(timeout=1.0)
 
                     if result != mqtt.MQTT_ERR_SUCCESS:
                         raise ConnectionError(
-                            f"MQTT loop failed: "
-                            f"{mqtt.error_string(result)}"
+                            f"MQTT loop failed: {mqtt.error_string(result)}"
                         )
+
+                    if time.monotonic() >= next_heartbeat:
+                        self._publish_heartbeat()
+                        next_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL
 
                 raise ConnectionError("MQTT connection lost")
 
