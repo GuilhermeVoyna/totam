@@ -52,6 +52,7 @@ class MQTTCallbacks:
 
         self._subscribe_topics()
         self.publisher.publish_status("online")
+        self.publisher.publish_heartbeat()
 
     def on_disconnect(
         self,
