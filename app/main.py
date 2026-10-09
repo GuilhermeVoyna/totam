@@ -30,7 +30,7 @@ def main():
         )
 
         # Inicia o cliente MQTT
-        mqtt_client = MQTTClient(controller)
+        mqtt_client = MQTTClient(controller=controller, mac=system.get_mac())
         mqtt_client.start()
 
     except KeyboardInterrupt:

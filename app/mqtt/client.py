@@ -6,7 +6,7 @@ import uuid
 
 import paho.mqtt.client as mqtt
 
-from config.settings import (
+from app.config.settings import (
     GROUP,
     TOTAM_HOSTNAME,
     MQTT_BROKER,
@@ -17,7 +17,7 @@ from config.settings import (
     MQTT_RETRY_INITIAL_DELAY,
     MQTT_RETRY_MAX_DELAY,
 )
-from mqtt.topics import (
+from app.mqtt.topics import (
     BROADCAST_TOPIC,
     get_command_topic,
     get_status_topic,
@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 
 class MQTTClient:
 
-    def __init__(self, controller):
+    def __init__(self, controller, mac):
 
         self.controller = controller
 
         self._connection_error = None
 
-        self.mac = self._get_mac()
+        self.mac = mac
 
         self.command_topic = get_command_topic(
             TOTAM_HOSTNAME
@@ -345,17 +345,3 @@ class MQTTClient:
             logger.exception(
                 "Error disconnecting MQTT"
             )
-
-    # =========================================================
-    # UTILS
-    # =========================================================
-
-    @staticmethod
-    def _get_mac():
-
-        mac = uuid.getnode()
-
-        return ":".join(
-            f"{(mac >> ele) & 0xff:02x}"
-            for ele in range(40, -1, -8)
-        )

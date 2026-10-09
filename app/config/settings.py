@@ -14,6 +14,7 @@ MQTT_BROKER = os.getenv("MQTT_BROKER")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
 
 TOTAM_HOSTNAME = os.getenv("TOTAM_HOSTNAME")
+TOTAM_MAC = os.getenv("TOTAM_MAC", "00:00:00:00:00:00")
 GROUP = os.getenv("GROUP")
 
 MQTT_MAX_RETRIES = int(os.getenv("MQTT_MAX_RETRIES", "5"))

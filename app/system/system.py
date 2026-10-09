@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-
+from app.config.settings import TOTAM_MAC
 
 class System(ABC):
 
@@ -14,3 +14,6 @@ class System(ABC):
     @abstractmethod
     def suspend(self):
         pass
+
+    def get_mac(self) -> str:
+        return TOTAM_MAC
